@@ -14,4 +14,7 @@ router.get('/list', optional, cloudStorageController.listFiles);
 // 获取单个文件的HTTP临时链接 - 为小程序提供单文件URL转换服务
 router.get('/file-url', optional, cloudStorageController.getFileUrl);
 
+// 批量获取文件URL - 为管理面板提供批量文件URL转换服务
+router.post('/batch-file-urls', optional, cloudStorageController.getBatchFileUrls);
+
 module.exports = router;

@@ -61,15 +61,37 @@ async function initMappingCollection() {
 }
 
 /**
- * 生成9位数字的短ID
+ * 基于19位雪花ID生成9位数字的短ID
+ * 使用哈希算法确保从同一个雪花ID总是生成相同的短ID
+ * @param {string} snowflakeID 19位雪花ID
  * @returns {string} 9位数字ID
  */
-function generateShortID() {
-  // 确保第一位为1-9
-  const firstDigit = Math.floor(Math.random() * 9) + 1;
-  // 生成剩余8位数字
-  const remainingDigits = Math.floor(Math.random() * 100000000).toString().padStart(8, '0');
-  return `${firstDigit}${remainingDigits}`;
+function generateShortID(snowflakeID) {
+  if (!snowflakeID) {
+    throw new Error('生成短ID需要提供雪花ID');
+  }
+  
+  // 将雪花ID转换为数字进行计算
+  const snowflakeNum = BigInt(snowflakeID);
+  
+  // 方法1: 使用模运算 + 位运算组合
+  // 取雪花ID的不同部分进行组合，确保分布均匀
+  const part1 = Number(snowflakeNum % 1000n); // 取后3位
+  const part2 = Number((snowflakeNum >> 10n) % 1000n); // 右移10位后取3位
+  const part3 = Number((snowflakeNum >> 20n) % 1000n); // 右移20位后取3位
+  
+  // 组合成9位数字，确保第一位不为0
+  let shortID = `${part1.toString().padStart(3, '0')}${part2.toString().padStart(3, '0')}${part3.toString().padStart(3, '0')}`;
+  
+  // 确保第一位不为0
+  if (shortID[0] === '0') {
+    // 如果第一位是0，用雪花ID的某一位替换
+    const replacement = Number((snowflakeNum >> 30n) % 9n) + 1; // 1-9
+    shortID = replacement + shortID.substring(1);
+  }
+  
+  console.log(`雪花ID ${snowflakeID} -> 短ID ${shortID} (算法: 模运算+位运算)`);
+  return shortID;
 }
 
 /**
@@ -121,53 +143,50 @@ async function generateCompactPetMeetID(userId) {
     const snowflakeID = generateSnowflakeId();
     console.log(`生成雪花ID: ${snowflakeID}`);
     
-    // 2. 生成9位 PetMeetID
-    let petMeetID;
-    let isUnique = false;
-    let attempts = 0;
-    const maxAttempts = 5;
+    // 2. 基于雪花ID计算9位 PetMeetID
+    const petMeetID = generateShortID(snowflakeID);
+    console.log(`计算得到PetMeetID: ${petMeetID}`);
     
-    while (!isUnique && attempts < maxAttempts) {
-      petMeetID = generateShortID();
-      attempts++;
-      console.log(`生成PetMeetID (${attempts}/${maxAttempts}): ${petMeetID}`);
-      
-      try {
-        isUnique = !(await checkPetMeetIDExists(petMeetID));
-      } catch (error) {
-        console.warn(`检查PetMeetID是否存在时出错: ${error.message}`);
-        // 假设是唯一的，继续处理
-        isUnique = true;
+    // 3. 检查是否已存在（理论上基于雪花ID计算的短ID应该是唯一的，但为了安全起见还是检查一下）
+    let finalPetMeetID = petMeetID;
+    try {
+      const exists = await checkPetMeetIDExists(petMeetID);
+      if (exists) {
+        console.warn(`计算得到的PetMeetID ${petMeetID} 已存在，这是极小概率事件`);
+        // 如果真的冲突了，在原ID基础上微调
+        const adjustment = Math.floor(Math.random() * 9) + 1;
+        finalPetMeetID = adjustment + petMeetID.substring(1);
+        console.log(`调整后的PetMeetID: ${finalPetMeetID}`);
       }
+    } catch (error) {
+      console.warn(`检查PetMeetID是否存在时出错: ${error.message}，继续使用计算得到的ID`);
     }
     
-    if (attempts >= maxAttempts) {
-      console.warn(`已尝试 ${maxAttempts} 次生成PetMeetID，使用最后一次生成的ID`);
-    }
-    
-    // 3. 存储映射关系
+    // 4. 存储映射关系
     try {
       const mappingDoc = {
-        originalID: snowflakeID, // 原始雪花ID
-        PetMeetID: petMeetID,   // PetMeetID (替代原shortID)
-        userId: userId,         // 用户ID（openID）
+        originalID: snowflakeID,     // 原始雪花ID
+        PetMeetID: finalPetMeetID,   // 计算得到的PetMeetID
+        userId: userId,              // 用户ID（openID）
+        algorithm: 'modulo_bitshift', // 记录使用的算法
         createdAt: db.serverDate()
       };
       
-      console.log(`添加映射关系: ${JSON.stringify(mappingDoc)}`);
+      console.log(`添加映射关系: ${snowflakeID} -> ${finalPetMeetID} (用户: ${userId})`);
       await db.collection(MAPPING_COLLECTION).add(mappingDoc);
-      console.log(`映射关系已存储: ${petMeetID} -> ${snowflakeID} (用户: ${userId})`);
+      console.log(`映射关系已存储成功`);
     } catch (addError) {
       console.error(`存储映射关系失败: ${addError.message}`);
       // 即使映射关系存储失败，仍然返回PetMeetID
     }
     
-    return petMeetID;
+    return finalPetMeetID;
   } catch (error) {
     console.error('生成PetMeetID失败:', error.message);
-    // 当出错时，直接返回原始雪花ID的前9位
-    const fallbackID = generateSnowflakeId().substring(0, 9);
-    console.log(`出错，使用备用ID: ${fallbackID}`);
+    // 当出错时，使用简单的备用算法
+    const fallbackSnowflake = generateSnowflakeId();
+    const fallbackID = (BigInt(fallbackSnowflake) % 900000000n + 100000000n).toString();
+    console.log(`出错，使用备用算法生成ID: ${fallbackID}`);
     return fallbackID;
   }
 }

@@ -1,0 +1,52 @@
+# PetMeet项目环境变量配置文件
+# 复制此文件为 .env 并填入实际的API密钥
+
+# 数据库配置
+CLOUDBASE_ENV_ID=cloud1-9g9n1il77a00ffbc
+CLOUDBASE_SECRET_ID=你的腾讯云密钥ID
+CLOUDBASE_SECRET_KEY=你的腾讯云密钥KEY
+
+# JWT密钥
+JWT_SECRET=your-secret-key
+
+# AI模型API密钥配置
+# ======================
+
+# 腾讯云AI API密钥 (用于腾讯混元、DeepSeek代理等)
+TENCENT_AI_API_KEY=你的腾讯云AI_API密钥
+
+# DeepSeek原生API密钥
+DEEP_SEEK_API_KEY=你的DeepSeek_API密钥
+
+# 豆包(字节跳动)API密钥
+DOU_BAO_API_KEY=你的豆包API密钥
+
+# 其他可选的API密钥
+# OPENAI_API_KEY=你的OpenAI_API密钥
+# ANTHROPIC_API_KEY=你的Anthropic_API密钥
+# GOOGLE_AI_API_KEY=你的Google_AI_API密钥
+
+# AI模型配置说明
+# ======================
+# TENCENT_AI_API_KEY: 
+#   - 支持腾讯混元模型 (hunyuan-turbos-latest)
+#   - 支持DeepSeek-R1代理访问
+#   - 支持腾讯图像生成模型
+#
+# DEEP_SEEK_API_KEY:
+#   - 支持DeepSeek-R1原生访问 (deepseek-reasoner)
+#   - 支持DeepSeek-V3模型
+#   - 支持DeepSeek-Chat和DeepSeek-Coder
+#   - 某些代理可能支持DALL-E模型
+#
+# DOU_BAO_API_KEY:
+#   - 支持豆包系列文字模型 (doubao-pro-32k, doubao-lite-128k等)
+#   - 支持豆包1.5思维版 (doubao-1-5-thinking-pro-250415)
+#   - 支持豆包SeeDream图像生成 (doubao-seedream-3-0-t2i-250415)
+
+# 使用说明
+# ======================
+# 1. 将此文件复制为 .env
+# 2. 填入你的实际API密钥
+# 3. 运行脚本: node scripts/save-ai-models-to-db.js
+# 4. 脚本会自动检测可用的API密钥并保存到数据库 

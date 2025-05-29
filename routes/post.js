@@ -11,6 +11,9 @@ router.get('/feed', optional, postController.getPostFeed);
 // 同样使用可选的身份验证，未登录用户可以查看公开帖子的详情
 router.get('/detail/:postId', optional, postController.getPostDetail);
 
+// 更新帖文
+router.put('/:postId', authenticateToken, postController.updatePost);
+
 // 创建帖子路由
 // 使用postController中的createPost函数
 router.post('/create', authenticateToken, postController.createPost);

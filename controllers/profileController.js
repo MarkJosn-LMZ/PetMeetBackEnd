@@ -608,11 +608,57 @@ const deletePetProfile = async (req, res) => {
   }
 };
 
+/**
+ * 获取所有用户列表（用于管理和测试）
+ */
+const getAllUsers = async (req, res) => {
+  try {
+    console.log('获取所有用户列表');
+
+    // 从user_profile集合获取用户列表
+    const { data: profileUsers } = await db.collection('user_profile')
+      .orderBy('createdAt', 'desc')
+      .limit(100) // 限制返回100个用户
+      .get();
+
+    // 格式化用户数据
+    const users = profileUsers.map(user => ({
+      _id: user._id,
+      _openid: user._openid,
+      nickName: user.nickName || user.nickname || '匿名用户',
+      avatarUrl: user.avatarUrl || '',
+      bio: user.bio || '',
+      gender: user.gender || '',
+      city: user.city || '',
+      province: user.province || '',
+      PetMeetID: user.PetMeetID || '',
+      createdAt: user.createdAt,
+      profileCompleted: user.profileCompleted || false
+    }));
+
+    console.log(`找到 ${users.length} 个用户`);
+
+    res.status(200).json({
+      success: true,
+      data: users,
+      message: `成功获取 ${users.length} 个用户`
+    });
+  } catch (error) {
+    console.error('获取用户列表失败:', error);
+    res.status(500).json({
+      success: false,
+      message: '获取用户列表失败',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   // 用户资料
   saveUserProfile,
   getUserProfile,
   deleteUserProfile,
+  getAllUsers,
   
   // 关注功能
   toggleFollow,

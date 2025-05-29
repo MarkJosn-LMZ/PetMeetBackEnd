@@ -171,6 +171,60 @@ router.get('/geocode', async (req, res) => {
 });
 
 /**
+ * 正向地理编码API（地址转经纬度）
+ * GET /api/hospitals/geocode/search
+ */
+router.get('/geocode/search', async (req, res) => {
+  try {
+    const { query: searchQuery } = req.query;
+    
+    if (!searchQuery) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少搜索关键词'
+      });
+    }
+
+    // 检查频率限制
+    const rateCheck = checkRateLimit();
+    if (!rateCheck.allowed) {
+      console.log(`[hospitals] 地理编码搜索被限制: ${rateCheck.reason}`);
+      return res.json({
+        success: false,
+        message: '地理编码服务暂时不可用',
+        data: null
+      });
+    }
+
+    requestCount++;
+    lastRequestTime = Date.now();
+
+    const locationInfo = await forwardGeocode(searchQuery);
+    
+    if (locationInfo) {
+      return res.json({
+        success: true,
+        data: locationInfo
+      });
+    } else {
+      return res.json({
+        success: false,
+        message: '无法找到该地址的位置信息',
+        data: null
+      });
+    }
+  } catch (error) {
+    console.error('地理编码搜索失败:', error);
+    return res.json({
+      success: false,
+      message: '地理编码服务异常',
+      data: null,
+      error: error.message
+    });
+  }
+});
+
+/**
  * 获取医院详情
  * GET /api/hospitals/:id
  */
@@ -334,6 +388,65 @@ async function reverseGeocode(longitude, latitude) {
     return null;
   } catch (error) {
     console.error('逆地理编码异常:', error.message);
+    return null;
+  }
+}
+
+/**
+ * 正向地理编码（地址转经纬度）
+ * @param {string} address 地址字符串
+ * @returns {Promise<Object>} 位置信息包括经纬度
+ */
+async function forwardGeocode(address) {
+  const axios = require('axios');
+  const apiKey = process.env.AMAP_API_KEY;
+
+  if (!apiKey) {
+    console.error('高德地图API Key未配置');
+    return null;
+  }
+
+  try {
+    console.log(`[hospitals] 正向地理编码搜索: ${address}`);
+    
+    const response = await axios.get('https://restapi.amap.com/v3/geocode/geo', {
+      params: {
+        key: apiKey,
+        address: address,
+        city: '',  // 不限制城市，允许全国搜索
+        output: 'JSON'
+      },
+      timeout: 8000
+    });
+
+    if (response.data.status === '0') {
+      console.error('正向地理编码API返回错误:', response.data);
+      return null;
+    }
+
+    const geocodes = response.data.geocodes;
+    if (geocodes && geocodes.length > 0) {
+      const firstResult = geocodes[0];
+      const location = firstResult.location.split(',');
+      
+      console.log(`[hospitals] 地理编码成功: ${address} -> ${firstResult.formatted_address}`);
+      
+      return {
+        longitude: parseFloat(location[0]),
+        latitude: parseFloat(location[1]),
+        address: firstResult.formatted_address || address,
+        city: firstResult.city || '未知城市',
+        district: firstResult.district || '未知区域',
+        province: firstResult.province || '未知省份',
+        adcode: firstResult.adcode || '',
+        level: firstResult.level || ''
+      };
+    }
+
+    console.log(`[hospitals] 未找到地址: ${address}`);
+    return null;
+  } catch (error) {
+    console.error('正向地理编码异常:', error.message);
     return null;
   }
 }

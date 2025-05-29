@@ -9,7 +9,7 @@ dotenv.config();
 
 // 导入路由
 const indexRoutes = require('./routes/index');
-const testRoutes = require('./routes/test');
+// const testRoutes = require('./routes/test'); // 注释掉不存在的test路由
 const authRoutes = require('./routes/auth');
 const profileRoutes = require('./routes/profile');
 const uploadRoutes = require('./routes/upload');
@@ -26,6 +26,9 @@ const petRoutes = require('./routes/pet'); // 新增宠物路由
 const reminderRoutes = require('./routes/reminder'); // 新增提醒路由
 const healthRoutes = require('./routes/health'); // 新增健康路由
 const hospitalsRoutes = require('./routes/hospitals'); // 新增医院路由
+const aiRoutes = require('./routes/ai'); // 新增AI路由
+const adminRoutes = require('./routes/admin'); // 新增管理员路由
+const usersRoutes = require('./routes/users'); // 新增用户路由
 
 // 初始化Express应用
 const app = express();
@@ -46,7 +49,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // 路由
 app.use('/api', indexRoutes);
-app.use('/test', testRoutes);
+// app.use('/test', testRoutes); // 注释掉不存在的test路由
 app.use('/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/upload', uploadRoutes);
@@ -65,6 +68,9 @@ app.use('/api/likes', likeRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/health', healthRoutes); // 健康相关路由
 app.use('/api/hospitals', hospitalsRoutes); // 新增医院路由
+app.use('/api/ai', aiRoutes); // 新增AI路由
+app.use('/api/admin', adminRoutes); // 新增管理员路由
+app.use('/api/users', usersRoutes); // 新增用户路由
 
 // 默认路由
 app.get('/', (req, res) => {

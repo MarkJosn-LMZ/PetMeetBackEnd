@@ -158,9 +158,70 @@ const getFileUrl = async (req, res) => {
   }
 };
 
+/**
+ * 批量获取云存储文件的HTTP临时链接
+ * @param {Object} req 请求对象
+ * @param {Object} res 响应对象
+ * @returns {Promise<void>}
+ */
+const getBatchFileUrls = async (req, res) => {
+  try {
+    const { fileIDs } = req.body;
+    
+    if (!fileIDs || !Array.isArray(fileIDs) || fileIDs.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: '请提供有效的文件ID数组'
+      });
+    }
+
+    // 检查请求文件数量限制
+    if (fileIDs.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message: '单次请求文件数量不能超过100个'
+      });
+    }
+
+    console.log('批量获取文件URL:', fileIDs.length, '个文件');
+    
+    // 获取CloudBase实例
+    const app = getCloudBase();
+    
+    // 批量转换为临时链接
+    const result = await app.getTempFileURL({
+      fileList: fileIDs
+    });
+    
+    console.log('批量获取文件URL结果:', result?.fileList?.length || 0, '个链接');
+    
+    if (result && result.fileList) {
+      return res.status(200).json({
+        success: true,
+        data: result.fileList,
+        count: result.fileList.length
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: '批量获取文件URL失败',
+        data: []
+      });
+    }
+  } catch (error) {
+    console.error('批量获取文件URL错误:', error);
+    return res.status(500).json({
+      success: false,
+      message: '批量获取文件URL时发生错误',
+      error: error.message
+    });
+  }
+};
+
 // 导出所有函数
 module.exports = {
   getTemporaryLinks,
   listFiles,
-  getFileUrl
+  getFileUrl,
+  getBatchFileUrls
 };

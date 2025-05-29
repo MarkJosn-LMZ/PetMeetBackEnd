@@ -680,12 +680,17 @@ exports.getPetHealthSummary = async (req, res) => {
     // 处理体重趋势数据
     const weightTrend = weightRecords.map(record => {
       const date = new Date(record.recordDate);
+      // 使用 iOS 兼容的日期格式 "yyyy/MM/dd"
+      const formattedDate = `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
       return {
-        date: `${date.getMonth() + 1}/${date.getDate()}`,
+        date: formattedDate,
         value: record.weight,
         unit: record.unit,
         bodyType: record.bodyType,
-        id: record._id
+        id: record._id,
+        recordDate: record.recordDate,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt
       };
     }).reverse();
     
@@ -704,7 +709,13 @@ exports.getPetHealthSummary = async (req, res) => {
         food: `${record.foodName} ${record.amount}${record.unit}`,
         time: `${hours}:${minutes}`,
         waterAmount: record.waterAmount,
-        waterUnit: record.waterUnit
+        waterUnit: record.waterUnit,
+        recordDate: record.recordDate,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        amount: record.amount,
+        unit: record.unit,
+        foodName: record.foodName
       };
     });
     
@@ -730,7 +741,11 @@ exports.getPetHealthSummary = async (req, res) => {
         time: `${hours}:${minutes}`,
         duration: record.duration,
         intensity: record.intensity,
-        steps: record.steps
+        steps: record.steps,
+        recordDate: record.recordDate,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+        exerciseType: record.exerciseType
       };
     });
     
@@ -759,7 +774,7 @@ exports.getPetHealthSummary = async (req, res) => {
       date.setDate(date.getDate() - i);
       last7Days.push({
         date: date,
-        formattedDate: `${date.getMonth() + 1}/${date.getDate()}`,
+        formattedDate: `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`,
         duration: 0
       });
     }
@@ -777,11 +792,31 @@ exports.getPetHealthSummary = async (req, res) => {
       });
     });
     
-    // 转换为前端需要的格式
+    // 转换为前端需要的格式，包含数据库字段
     last7Days.forEach(day => {
+      // 查找该日期的原始记录，以获取数据库字段
+      const dayRecords = exerciseRecords.filter(record => {
+        const recordDate = new Date(record.recordDate);
+        return recordDate.getDate() === day.date.getDate() && 
+               recordDate.getMonth() === day.date.getMonth() && 
+               recordDate.getFullYear() === day.date.getFullYear();
+      });
+      
+      // 使用该日期最新的记录的数据库字段，如果没有记录则使用当天日期
+      const latestRecord = dayRecords.length > 0 ? dayRecords[dayRecords.length - 1] : null;
+      
+      // 使用 iOS 兼容的日期格式
+      const iosCompatibleDate = `${day.date.getFullYear()}/${String(day.date.getMonth() + 1).padStart(2, '0')}/${String(day.date.getDate()).padStart(2, '0')}`;
+      
       exerciseTrend.push({
-        date: day.formattedDate,
-        value: day.duration
+        date: iosCompatibleDate,
+        value: day.duration,
+        // 包含数据库字段以支持近3天过滤
+        recordDate: latestRecord ? latestRecord.recordDate : day.date.toISOString(),
+        createdAt: latestRecord ? latestRecord.createdAt : day.date.toISOString(),
+        updatedAt: latestRecord ? latestRecord.updatedAt : day.date.toISOString(),
+        // 添加辅助信息
+        recordsCount: dayRecords.length
       });
     });
     

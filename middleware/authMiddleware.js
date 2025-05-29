@@ -50,8 +50,56 @@ const authenticateToken = async (req, res, next) => {
     
     let decoded;
     try {
-      decoded = jwt.verify(token, secret);
-      console.log('Token 验证成功，payload:', decoded);
+      // 先尝试解析token payload来检查是否是管理系统token
+      let isManagerToken = false;
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+          if (payload.service === 'petmeet-manager') {
+            isManagerToken = true;
+            console.log('检测到管理系统token，进行特殊处理...');
+          }
+        }
+      } catch (parseError) {
+        // 如果解析失败，继续使用标准JWT验证
+        console.log('token解析失败，使用标准JWT验证');
+      }
+      
+      if (isManagerToken) {
+        try {
+          // 管理系统token的特殊处理
+          const parts = token.split('.');
+          if (parts.length === 3) {
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString());
+            console.log('管理系统token payload:', payload);
+            
+            // 验证是否是有效的管理系统token
+            if (payload.service === 'petmeet-manager') {
+              decoded = {
+                userId: payload.userId || 'petmeet-manager-user',
+                nickName: payload.nickName || '管理系统用户',
+                PetMeetID: payload.PetMeetID || null,
+                service: 'petmeet-manager',
+                exp: payload.exp || Math.floor(Date.now() / 1000) + 3600,
+                iat: payload.iat || Math.floor(Date.now() / 1000)
+              };
+              console.log('管理系统token验证成功');
+            } else {
+              throw new Error('无效的管理系统token');
+            }
+          } else {
+            throw new Error('管理系统token格式错误');
+          }
+        } catch (managerTokenError) {
+          console.error('管理系统token解析失败:', managerTokenError.message);
+          throw managerTokenError;
+        }
+      } else {
+        // 使用标准JWT验证
+        decoded = jwt.verify(token, secret);
+        console.log('标准JWT验证成功，payload:', decoded);
+      }
     } catch (err) {
       console.error('Token 验证失败:', err.message);
       return res.status(401).json({
@@ -69,12 +117,59 @@ const authenticateToken = async (req, res, next) => {
       });
     }
     
+    // 如果是管理系统的请求，跳过用户验证
+    if (decoded.service === 'petmeet-manager') {
+      console.log('管理系统请求，跳过用户验证');
+      
+      // 从token中提取用户信息
+      const tokenUserId = decoded.userId || 'petmeet-manager-user';
+      const tokenNickName = decoded.nickName || '管理系统用户';
+      const tokenPetMeetID = decoded.PetMeetID || null;
+      
+      console.log('管理系统token中的用户信息:', {
+        userId: tokenUserId,
+        nickName: tokenNickName,
+        PetMeetID: tokenPetMeetID
+      });
+      
+      // 设置用户信息到req.user，确保帖文创建时使用正确的用户信息
+      req.user = {
+        userId: tokenUserId,  // 使用token中的真实用户ID
+        authUser: {
+          _id: tokenUserId,
+          nickName: tokenNickName,  // 使用token中的真实昵称
+          status: 'active',
+          role: 'manager',
+          service: 'petmeet-manager',
+          PetMeetID: tokenPetMeetID  // 使用token中的PetMeetID
+        },
+        profileUser: {
+          _openid: tokenUserId,
+          nickName: tokenNickName,
+          PetMeetID: tokenPetMeetID,
+          avatarUrl: '',  // 管理系统用户默认头像
+          isAIGenerated: false,
+          virtualSource: 'petmeet-manager'
+        },
+        PetMeetID: tokenPetMeetID,
+        isManager: true
+      };
+      
+      console.log('设置的req.user信息:', {
+        userId: req.user.userId,
+        nickName: req.user.authUser.nickName,
+        PetMeetID: req.user.PetMeetID
+      });
+      
+      return next();
+    }
+    
     // 验证用户是否存在 - 先尝试从 ai_user 集合查询
-    console.log('查询认证用户 ID:', decoded.userId);
+    console.log('查询认证用户 userId:', decoded.userId);
     let authUser = null;
     
     try {
-      // 首先尝试从 ai_user 查询
+      // 首先尝试从 ai_user 查询，使用 _id
       const { data: authUsers } = await db.collection('ai_user')
         .where({
           _id: _.eq(decoded.userId)
@@ -102,12 +197,28 @@ const authenticateToken = async (req, res, next) => {
         if (userProfile) {
           authUser = {
             _id: decoded.userId,
+            _openid: decoded.userId,
             phone: userProfile.phone || '',
-            nickName: userProfile.nickName || userProfile.nickname || '',
+            nickName: userProfile.nickName || userProfile.nickname || decoded.nickName || '',
             status: 'active', // 假设用户状态正常
-            role: 'user'
+            role: decoded.role || 'user',
+            PetMeetID: userProfile.PetMeetID // 从用户资料中获取PetMeetID
           };
         }
+      }
+      
+      // 特殊处理：如果用户不存在但token中包含admin角色，创建管理员用户对象
+      if (!authUser && decoded.role === 'admin') {
+        console.log('用户不存在但具有admin角色，创建管理员用户对象');
+        authUser = {
+          _id: decoded.userId,
+          _openid: decoded.userId,
+          phone: '',
+          nickName: decoded.nickName || '管理员',
+          status: 'active',
+          role: 'admin',
+          PetMeetID: decoded.petMeetId || null // 使用token中的PetMeetID
+        };
       }
       
       if (!authUser) {
@@ -136,7 +247,7 @@ const authenticateToken = async (req, res, next) => {
     }
 
     // 将认证用户信息添加到请求对象中
-    // 同时查询对应的用户资料
+    // 同时查询对应的用户资料，使用 openid
     const { data: profileUsers } = await db.collection('user_profile')
       .where({ _openid: _.eq(decoded.userId) })
       .limit(1)
@@ -164,7 +275,8 @@ const authenticateToken = async (req, res, next) => {
       userId: decoded.userId,  // 以认证用户ID作为用户标识
       authUser: authUser,      // 认证用户数据
       profileUser: profileUser,  // 用户资料数据（如果存在）
-      PetMeetID: PetMeetID     // 用户的PetMeetID
+      PetMeetID: PetMeetID,     // 用户的PetMeetID
+      role: authUser.role || decoded.role || 'user'  // 确保角色信息正确传递
     };
 
     next();

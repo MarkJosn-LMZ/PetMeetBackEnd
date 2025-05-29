@@ -399,10 +399,10 @@ const getPostFeed = async (req, res) => {
         .where({status: 'approved'})
         .limit(1)
         .get();
-      console.log(`[getPostFeed] 测试查询结果数量: ${testQuery.data.length}`);
-      if (testQuery.data.length > 0) {
-        console.log(`[getPostFeed] 示例帖文ID: ${testQuery.data[0]._id}`);
-      }
+          console.log(`[getPostFeed] 查询结果数量: ${testQuery.data.length}`);
+    if (testQuery.data.length > 0) {
+      console.log(`[getPostFeed] 示例帖文ID: ${testQuery.data[0]._id}`);
+    }
     } catch (e) {
       console.error('[getPostFeed] 测试查询失败:', e);
     }
@@ -688,7 +688,18 @@ const createPost = async (req, res) => {
 
     // 4. 获取用户资料
     console.log('获取用户资料:', currentUserOpenid);
-    const userProfile = await getUserProfile(currentUserOpenid);
+    let userProfile = await getUserProfile(currentUserOpenid);
+    
+    // 如果是管理系统用户且没有找到用户资料，使用token中的信息
+    if (!userProfile && req.user.isManager) {
+      console.log('管理系统用户，使用token中的用户信息');
+      userProfile = {
+        nickName: req.user.authUser.nickName || '管理系统用户',
+        avatarUrl: req.user.profileUser.avatarUrl || '',
+        adultModeEnabled: false  // 管理系统用户默认不开启成人模式
+      };
+      console.log('使用的管理系统用户资料:', userProfile);
+    }
     
     if (!userProfile) {
       console.error('未找到用户资料:', currentUserOpenid);
@@ -744,7 +755,9 @@ const createPost = async (req, res) => {
       userPetMeetID // 添加PetMeetID
     );
     
-    console.log('帖子创建成功, ID:', record._id);
+    // 从数据库返回结果中提取帖子ID
+    const postId = record._id || record.id;
+    console.log('帖子创建成功, ID:', postId);
 
     // 9. 更新用户发帖计数
     try {
@@ -760,7 +773,7 @@ const createPost = async (req, res) => {
       code: 0,
       message: '发布成功',
       data: { 
-        postId: record._id, 
+        postId: postId, 
         status: 'approved',
         createdAt: new Date().toISOString()
       }
@@ -1043,6 +1056,7 @@ async function createPostRecord(openid, userInfo, postData, status, contentType,
     likeCount: 0,
     commentCount: 0,
     shareCount: 0,
+    // 强制使用服务器时间，忽略前端传入的时间字段
     createdAt: db.serverDate(),
     updatedAt: db.serverDate(),
     status,
@@ -1061,12 +1075,121 @@ async function createPostRecord(openid, userInfo, postData, status, contentType,
 
   try {
     // 直接写入record对象，而不是嵌套在data中
-    return await db.collection('ai_post').add(record);
+    const result = await db.collection('ai_post').add(record);
+    console.log('数据库添加结果:', result);
+    
+    // 返回包含ID的对象
+    return {
+      _id: result._id || result.id,
+      ...result
+    };
   } catch (e) {
     console.error('数据库写入失败:', e);
     throw { code: ErrorCode.DATABASE_ERROR, message: '数据保存失败' };
   }
 }
+
+/**
+ * 更新帖文
+ * @param {Object} req 请求对象
+ * @param {Object} res 响应对象
+ * @returns {Promise<void>}
+ */
+const updatePost = async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const updateData = req.body;
+    const currentUserOpenid = req.user.userId;
+    
+    console.log(`用户 ${currentUserOpenid} 尝试更新帖文 ${postId}`);
+    
+    if (!postId) {
+      return res.status(400).json({
+        success: false,
+        code: ErrorCode.PARAM_INVALID,
+        message: '帖文ID不能为空'
+      });
+    }
+    
+    // 1. 获取原帖文数据
+    let post;
+    try {
+      const postRes = await db.collection('ai_post').doc(postId).get();
+      if (!postRes || !postRes.data || !Array.isArray(postRes.data) || postRes.data.length === 0) {
+        return res.status(404).json({
+          success: false,
+          code: ErrorCode.PARAM_INVALID,
+          message: '帖文不存在或已被删除'
+        });
+      }
+      post = postRes.data[0];
+    } catch (error) {
+      console.error('获取帖文数据失败:', error);
+      return res.status(500).json({
+        success: false,
+        code: ErrorCode.DATABASE_ERROR,
+        message: '获取帖文数据失败'
+      });
+    }
+    
+    // 2. 验证权限
+    if (post._openid !== currentUserOpenid && !req.user.isManager) {
+      return res.status(403).json({
+        success: false,
+        code: ErrorCode.UNAUTHORIZED,
+        message: '无权修改此帖文'
+      });
+    }
+    
+    // 3. 构建更新数据
+    const allowedFields = ['title', 'content', 'images', 'topics', 'permission', 'longPost', 'location'];
+    const updateFields = {};
+    
+    allowedFields.forEach(field => {
+      if (updateData.hasOwnProperty(field)) {
+        updateFields[field] = updateData[field];
+      }
+    });
+    
+    // 添加更新时间
+    updateFields.updatedAt = new Date().toISOString();
+    
+    console.log('更新字段:', updateFields);
+    
+    // 4. 执行更新
+    try {
+      await db.collection('ai_post').doc(postId).update(updateFields);
+      console.log(`帖文 ${postId} 更新成功`);
+      
+      // 5. 获取更新后的帖文数据
+      const updatedPostRes = await db.collection('ai_post').doc(postId).get();
+      const updatedPost = updatedPostRes.data[0];
+      
+      return res.json({
+        success: true,
+        code: 0,
+        message: '帖文更新成功',
+        data: {
+          post: updatedPost
+        }
+      });
+    } catch (error) {
+      console.error('更新帖文失败:', error);
+      return res.status(500).json({
+        success: false,
+        code: ErrorCode.DATABASE_ERROR,
+        message: '更新帖文失败'
+      });
+    }
+  } catch (error) {
+    console.error('更新帖文异常:', error);
+    return res.status(500).json({
+      success: false,
+      code: ErrorCode.DATABASE_ERROR,
+      message: '服务器内部错误'
+    });
+  }
+};
 
 /**
  * 删除帖文
@@ -1156,21 +1279,7 @@ const deletePost = async (req, res) => {
       }
     }
     
-    // 如果还是找不到帖文，使用中间替代方案：尝试获取eea1754d682e8be100cd503e698e3c17
-    const hardcodedPostId = 'eea1754d682e8be100cd503e698e3c17';
-    if (!post && postId === hardcodedPostId) {
-      try {
-        console.log('尝试直接使用指定eea1754d682e8be100cd503e698e3c17数据');
-        post = {
-          _id: hardcodedPostId,
-          PetMeetID: '864252200',
-          _openid: '29dca3d5682c133900a709ab33d3ff30'
-        };
-        console.log('使用确定的测试数据:', post);
-      } catch (error) {
-        console.error('使用测试数据时出错:', error);
-      }
-    }
+    // 如果找不到帖文，直接返回404错误
     
     // 如果仍然无法获取帖文数据，返回404错误
     if (!post) {
@@ -1226,20 +1335,15 @@ const deletePost = async (req, res) => {
       postPetMeetID,
     });
     
-    // 特殊情况处理 - 如果这是测试帖文，直接允许删除
-    if (postId === 'eea1754d682e8be100cd503e698e3c17') {
-      console.log('这是特殊测试帖文，直接允许删除');
-      postOpenid = currentUserOpenid;
-      postPetMeetID = userPetMeetID;
-    }
+    // 验证帖文所有权
     
     const postBelongsToCurrentUser = (
       // 检查openid是否匹配
       (postOpenid && postOpenid === currentUserOpenid) ||
       // 检查PetMeetID是否匹配
       (postPetMeetID && userPetMeetID && postPetMeetID === userPetMeetID) ||
-      // 测试环境特殊处理
-      (process.env.NODE_ENV === 'development' && postId === 'eea1754d682e8be100cd503e698e3c17')
+      // 管理员用户可以删除任何帖文 - 修正权限检查字段
+      (req.user.role === 'admin')
     );
     
     console.log('帖文所有权检查结果:', {
@@ -1247,6 +1351,8 @@ const deletePost = async (req, res) => {
       currentUserOpenid,
       postPetMeetID,
       userPetMeetID,
+      userRole: req.user.role,
+      isAdmin: req.user.role === 'admin',
       belongsToUser: postBelongsToCurrentUser
     });
     
@@ -1318,3 +1424,4 @@ module.exports.getPostFeed = getPostFeed;
 module.exports.getPostDetail = getPostDetail;
 module.exports.createPost = createPost;
 module.exports.deletePost = deletePost;
+module.exports.updatePost = updatePost;

@@ -6,12 +6,18 @@ const _ = db.command;
 const jwt = require('jsonwebtoken');
 
 // 生成 JWT token
-const generateToken = (userId) => {
+const generateToken = (authUser) => {
   const secret = process.env.JWT_SECRET || 'your-secret-key';
   const expiresIn = '7d'; // token 7天后过期
   
   return jwt.sign(
-    { userId },
+    { 
+      userId: authUser._id,
+      openid: authUser._id, // 为了向后兼容，同时设置openid
+      nickName: authUser.nickName,
+      PetMeetID: authUser.PetMeetID,
+      role: authUser.role || 'user'
+    },
     secret,
     { expiresIn }
   );
@@ -223,7 +229,7 @@ const loginWithPhoneCode = async (req, res) => {
     }
     
     // 生成登录凭证 - 使用认证用户的ID
-    const token = generateToken(authUser._id);
+    const token = generateToken(authUser);
     
     // 获取用户资料信息（如果存在）
     const userProfileCollection = db.collection('user_profile');
