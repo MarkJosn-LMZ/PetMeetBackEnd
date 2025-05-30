@@ -318,9 +318,9 @@ server {
     # 文件上传大小限制
     client_max_body_size 50M;
     
-    # 后端API代理
-    location /api/ {
-        proxy_pass http://petmeet_backend;
+    # 管理面板API - 优先匹配，先经过管理面板服务器
+    location /api/admin/ {
+        proxy_pass http://petmeet_admin;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -333,8 +333,8 @@ server {
         proxy_connect_timeout 75s;
     }
     
-    # 认证API代理
-    location /auth/ {
+    # 后端API代理 - 匹配其他API请求
+    location /api/ {
         proxy_pass http://petmeet_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -344,6 +344,8 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 300s;
+        proxy_connect_timeout 75s;
     }
     
     # 静态文件服务（上传的文件）
